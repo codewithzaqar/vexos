@@ -1,27 +1,35 @@
 """core/mode_manager.py - VexOS Modal State Machine"""
 from enum import Enum, auto
 from PyQt5.QtCore import QObject, pyqtSignal
+from core.command_engine import CommandEngine
 
 
 class Mode(Enum):
     NORMAL = auto()
     INSERT = auto()
     COMMAND = auto()
-    VISUAL = auto()  # Placeholder for future versions
+    VISUAL = auto()
 
 
 class ModeManager(QObject):
-    """Central authority for VexOS modal state and key translation."""
+    """Central authority for VexOS modal state, motions, and commands."""
 
     mode_changed = pyqtSignal(Mode)
     command_line_changed = pyqtSignal(str)
     status_message = pyqtSignal(str)
+    motion_requested = pyqtSignal(str, int)  # (direction, count)
+    quit_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._mode = Mode.NORMAL
         self._command_buffer = ""
-        self._pending_keys = ""
+        self._pending_count = ""
+
+        # Command engine
+        self.cmd_engine = CommandEngine(self)
+        self.cmd_engine.message.connect(self.status_message.emit)
+        self.cmd_engine.quit_requested.connect(self.quit_requested.emit)
 
     @property
     def mode(self) -> Mode:
@@ -33,11 +41,12 @@ class ModeManager(QObject):
             if new_mode != Mode.COMMAND:
                 self._command_buffer = ""
                 self.command_line_changed.emit("")
+            if new_mode == Mode.NORMAL:
+                self._pending_count = ""
             self.mode_changed.emit(new_mode)
             self.status_message.emit(f"-- {new_mode.name} --")
 
     def handle_key(self, key: int, text: str, modifiers) -> bool:
-        """Process a raw key event. Returns True if consumed."""
         from PyQt5.QtCore import Qt
 
         if self._mode == Mode.COMMAND:
@@ -54,17 +63,40 @@ class ModeManager(QObject):
     def _handle_normal_key(self, key: int, text: str) -> bool:
         from PyQt5.QtCore import Qt
 
-        if key == Qt.Key_I:
-            self.set_mode(Mode.INSERT)
+        # Count prefix accumulation
+        if text.isdigit() and not (text == '0' and not self._pending_count):
+            self._pending_count += text
             return True
+
+        count = max(1, int(self._pending_count)) if self._pending_count else 1
+        consumed = False
+
+        if key == Qt.Key_H:
+            self.motion_requested.emit("left", count)
+            consumed = True
+        elif key == Qt.Key_J:
+            self.motion_requested.emit("down", count)
+            consumed = True
+        elif key == Qt.Key_K:
+            self.motion_requested.emit("up", count)
+            consumed = True
+        elif key == Qt.Key_L:
+            self.motion_requested.emit("right", count)
+            consumed = True
+        elif key == Qt.Key_I:
+            self.set_mode(Mode.INSERT)
+            consumed = True
         elif key == Qt.Key_Colon:
             self.set_mode(Mode.COMMAND)
-            return True
+            consumed = True
         elif key == Qt.Key_Escape:
-            self._pending_keys = ""
+            self._pending_count = ""
             self.status_message.emit("")
-            return True
-        return False
+            consumed = True
+
+        if consumed:
+            self._pending_count = ""
+        return consumed
 
     def _handle_command_key(self, key: int, text: str) -> bool:
         from PyQt5.QtCore import Qt
@@ -73,8 +105,7 @@ class ModeManager(QObject):
             self.set_mode(Mode.NORMAL)
             return True
         elif key in (Qt.Key_Return, Qt.Key_Enter):
-            cmd = self._command_buffer.strip()
-            self.status_message.emit(f":{cmd} [not implemented]")
+            self.cmd_engine.execute(self._command_buffer)
             self.set_mode(Mode.NORMAL)
             return True
         elif key == Qt.Key_Backspace:

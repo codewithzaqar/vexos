@@ -1,6 +1,7 @@
 """ui/buffer_view.py - Central VexOS Workspace Buffer"""
 from PyQt5.QtWidgets import QPlainTextEdit
 from PyQt5.QtGui import QFont, QTextCursor
+from PyQt5.QtCore import Qt
 
 
 class BufferView(QPlainTextEdit):
@@ -12,14 +13,17 @@ class BufferView(QPlainTextEdit):
 ║   A Vim-like Operating Environment   ║
 ╠══════════════════════════════════════╣
 ║                                      ║
+║   NEW in a02:                        ║
+║     h/j/k/l -> Basic cursor motions  ║
+║     :q -> Quit VexOS                 ║
+║     :echo -> Print to status line    ║
+║     :help -> List commands           ║
+║                                      ║
 ║  Modes:                              ║
 ║    i     → Enter INSERT mode         ║
 ║    Esc   → Return to NORMAL mode     ║
 ║    :     → Enter COMMAND mode        ║
-║                                      ║
-║  This buffer IS your desktop.        ║
-║  Edit freely in INSERT mode.         ║
-║                                      ║
+║                                      ║       
 ╚══════════════════════════════════════╝
 """
 
@@ -47,3 +51,24 @@ class BufferView(QPlainTextEdit):
 
     def set_readonly_visual(self, readonly: bool):
         self.setStyleSheet(self.STYLE_READONLY if readonly else self.STYLE_EDITABLE)
+
+    # --- Programmatic Motion API (works in read-only mode) ---
+
+    def move_cursor(self, operation: QTextCursor.MoveOperation,
+                    mode: QTextCursor.MoveMode = QTextCursor.MoveAnchor,
+                    count: int = 1):
+        """Move cursor programmatically regardless of read-only state."""
+        cursor = self.textCursor()
+        cursor.movePosition(operation, mode, count)
+        self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+
+    def move_line(self, direction: int, count: int = 1):
+        """Move up (-1) or down (+1) by count lines."""
+        op = QTextCursor.Down if direction > 0 else QTextCursor.Up
+        self.move_cursor(op, count=count)
+
+    def move_char(self, direction: int, count: int = 1):
+        """Move left (-1) or right (+1) by count characters."""
+        op = QTextCursor.Right if direction > 0 else QTextCursor.Left
+        self.move_cursor(op, count=count)
