@@ -13,16 +13,16 @@ class BufferView(QPlainTextEdit):
 ║   A Vim-like Operating Environment   ║
 ╠══════════════════════════════════════╣
 ║                                      ║
-║   NEW in a02:                        ║
-║     h/j/k/l -> Basic cursor motions  ║
-║     :q -> Quit VexOS                 ║
-║     :echo -> Print to status line    ║
-║     :help -> List commands           ║
+║   NEW in a03:                        ║
+║     dw/d3j/dd -> Delete + motion     ║
+║     x -> Delete single char          ║
+║     yy/yw -> Yank to register        ║
+║     p -> Paste from register         ║
+║     Registers -> ", +, * supported   ║
 ║                                      ║
-║  Modes:                              ║
-║    i     → Enter INSERT mode         ║
-║    Esc   → Return to NORMAL mode     ║
-║    :     → Enter COMMAND mode        ║
+║   Previous:                          ║
+║     h/j/k/l -> Cursor motions        ║
+║     :q/:echo -> Command engine       ║
 ║                                      ║       
 ╚══════════════════════════════════════╝
 """
@@ -57,18 +57,66 @@ class BufferView(QPlainTextEdit):
     def move_cursor(self, operation: QTextCursor.MoveOperation,
                     mode: QTextCursor.MoveMode = QTextCursor.MoveAnchor,
                     count: int = 1):
-        """Move cursor programmatically regardless of read-only state."""
         cursor = self.textCursor()
         cursor.movePosition(operation, mode, count)
         self.setTextCursor(cursor)
         self.ensureCursorVisible()
 
     def move_line(self, direction: int, count: int = 1):
-        """Move up (-1) or down (+1) by count lines."""
         op = QTextCursor.Down if direction > 0 else QTextCursor.Up
         self.move_cursor(op, count=count)
 
     def move_char(self, direction: int, count: int = 1):
-        """Move left (-1) or right (+1) by count characters."""
         op = QTextCursor.Right if direction > 0 else QTextCursor.Left
         self.move_cursor(op, count=count)
+
+    # --- Text Manipulation API (for operators) ---
+
+    def get_char_under_cursor(self) -> str:
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.NextCharacter, QTextCursor.KeepAnchor)
+        return cursor.selectedText()
+
+    def delete_char_under_cursor(self) -> str:
+        """Delete single character under cursor, return deleted text."""
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.NextCharacter, QTextCursor.KeepAnchor)
+        text = cursor.selectedText()
+        cursor.removeSelectedText()
+        self.setTextCursor(cursor)
+        return text
+
+    def delete_current_line(self) -> str:
+        """Delete entire current line including newline, return deleted text."""
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.StartOfLine)
+        cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.KeepAnchor)
+        # Include the trailing newline
+        cursor.movePosition(QTextCursor.NextCharacter, QTextCursor.KeepAnchor)
+        text = cursor.selectedText()
+        cursor.removeSelectedText()
+        self.setTextCursor(cursor)
+        return text
+
+    def paste_after_cursor(self, text: str):
+        """Paste text after cursor position."""
+        if not text:
+            return
+        cursor = self.textCursor()
+        # If text contains newlines, paste on next line
+        if '\n' in text or '\u2029' in text:
+            cursor.movePosition(QTextCursor.EndOfLine)
+            cursor.insertText('\n' + text.rstrip('\n').replace('\u2029', '\n'))
+        else:
+            cursor.movePosition(QTextCursor.NextCharacter)
+            cursor.insertText(text)
+        self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+
+    def get_selected_text(self) -> str:
+        return self.textCursor().selectedText()
+
+    def remove_selection(self):
+        cursor = self.textCursor()
+        cursor.removeSelectedText()
+        self.setTextCursor(cursor)
